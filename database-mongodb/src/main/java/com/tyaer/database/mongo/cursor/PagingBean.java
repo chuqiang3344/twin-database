@@ -1,11 +1,11 @@
-package com.tyaer.db.mongo.cursor;
+package com.tyaer.database.mongo.cursor;
 
 /**
  * Created by Twin on 2017/3/8.
  */
 
 import com.mongodb.BasicDBObject;
-import com.tyaer.db.mongo.bean.Sort;
+import com.tyaer.database.mongo.bean.Sort;
 
 /**
  * 分页,排序对象

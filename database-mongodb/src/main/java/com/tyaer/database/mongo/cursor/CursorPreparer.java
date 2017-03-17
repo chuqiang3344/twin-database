@@ -1,4 +1,4 @@
-package com.tyaer.db.mongo.cursor;
+package com.tyaer.database.mongo.cursor;
 
 /**
  * Created by Twin on 2017/3/8.

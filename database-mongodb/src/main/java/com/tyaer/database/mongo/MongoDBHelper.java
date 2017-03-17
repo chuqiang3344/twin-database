@@ -1,4 +1,4 @@
-package com.tyaer.db.mongo;
+package com.tyaer.database.mongo;
 
 import com.mongodb.*;
 import com.mongodb.client.*;
@@ -6,10 +6,10 @@ import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
-import com.tyaer.db.mongo.bean.BsonBean;
-import com.tyaer.db.mongo.bean.Order;
-import com.tyaer.db.mongo.bean.Rule;
-import com.tyaer.db.mongo.cursor.PagingBean;
+import com.tyaer.database.mongo.bean.BsonBean;
+import com.tyaer.database.mongo.bean.Order;
+import com.tyaer.database.mongo.bean.Rule;
+import com.tyaer.database.mongo.cursor.PagingBean;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.log4j.Logger;
 import org.bson.Document;

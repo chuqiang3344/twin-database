@@ -1,4 +1,4 @@
-package com.tyaer.db.mongo.bean;
+package com.tyaer.database.mongo.bean;
 
 /**
  * Created by Twin on 2017/3/8.
@@ -16,6 +16,13 @@ public enum Order {
 
     Order(int nCode) {
         this.nCode = nCode;
+    }
+
+    public static void main(String[] args) {
+        System.out.println(ASC.ordinal());
+        System.out.println(ASC.name());
+        System.out.println(ASC.nCode);
+        System.out.println(ASC);
     }
 
     public int getnCode() {

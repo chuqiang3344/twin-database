@@ -1,4 +1,4 @@
-package com.tyaer.db.mongo.bean;
+package com.tyaer.database.mongo.bean;
 
 /**
  * Created by Twin on 2017/3/8.

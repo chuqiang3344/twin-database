@@ -1,4 +1,4 @@
-package com.tyaer.db.mysql;
+package com.tyaer.database.mysql;
 
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.log4j.Logger;
@@ -11,19 +11,26 @@ import java.util.List;
 import java.util.Map;
 
 /**
+ * mysql操作工具
  * Created by Twin on 2016/6/17.
  */
-public class IDatabase {
-    private static Logger logger = Logger.getLogger(IDatabase.class);
-    private static Connection CONNECTION;
-    // 数据库地址
-    private String url;
-    // 数据库用户名
-    private String userName;
-    // 数据库密码
-    private String passWord;
+public abstract class MySQLHelper {
 
-    protected IDatabase(String DRIVER, String USERNAME, String PASSWORD, String URL) {
+    private static final Logger logger = Logger.getLogger(MySQLHelper.class);
+    /**
+     * 查询超时时间
+     */
+    private static final int QUERY_TIMEOUT = 20;
+    // 驱动信息
+    private static final String DRIVER = "com.mysql.jdbc.Driver";
+    // 数据库地址
+    protected String url;
+    // 数据库用户名
+    protected String userName;
+    // 数据库密码
+    protected String passWord;
+
+    protected MySQLHelper(String USERNAME, String PASSWORD, String URL) {
         userName = USERNAME;
         passWord = PASSWORD;
         url = URL;
@@ -36,32 +43,13 @@ public class IDatabase {
     }
 
     /**
-     * 获得数据库的连接,单连接
-     */
-    protected Connection getConnection() throws Exception {
-        if (CONNECTION == null || CONNECTION.isClosed()) {
-            synchronized (IDatabase.class) {
-                if (CONNECTION == null || CONNECTION.isClosed()) {
-                    try {
-                        CONNECTION = DriverManager.getConnection(url, userName, passWord);
-                    } catch (Exception e) {
-                        System.out.println("数据库连接失败！！");
-                        throw e;
-//            e.printStackTrace();
-                    }
-                }
-            }
-        }
-        return CONNECTION;
-    }
-
-    /**
      * 处理语句
+     *
      * @param sql
      * @return
      * @throws SQLException
      */
-    public int executeSql(String sql) throws SQLException {
+    public int executeSql(String sql) {
         Connection conn = null;
         PreparedStatement pstmt = null;
         try {
@@ -70,10 +58,9 @@ public class IDatabase {
             int i = pstmt.executeUpdate();
             return i;
         } catch (Exception e) {
-//            e.printStackTrace();
-            System.out.println(ExceptionUtils.getStackFrames(e));
+            e.printStackTrace();
         } finally {
-            closeConnect(pstmt, conn);
+            closeConnect(null, pstmt, conn);
         }
         return 0;
     }
@@ -132,12 +119,12 @@ public class IDatabase {
 //            logger.error(ExceptionUtils.getMessage(e));
             e.printStackTrace();
         } finally {
-            closeConnect(pstmt, conn);
+            closeConnect(null, pstmt, conn);
         }
         return false;
     }
 
-    public boolean updateByPreparedStatement(String sql, List<Object> params,Connection conn) {
+    public boolean updateByPreparedStatement(String sql, List<Object> params, Connection conn) {
         boolean flag;
         int result;
         PreparedStatement pstmt = null;
@@ -157,13 +144,14 @@ public class IDatabase {
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
-            closeConnect(pstmt, conn);
+            closeConnect(null, pstmt, conn);
         }
         return false;
     }
 
     /**
      * 批量更新
+     *
      * @param sql
      * @param paramsList
      */
@@ -190,14 +178,15 @@ public class IDatabase {
         } catch (Exception e) {
             logger.error(ExceptionUtils.getMessage(e));
         } finally {
-            closeConnect(pstmt, conn);
+            closeConnect(null, pstmt, conn);
         }
     }
 
     /**
-     * 查询单条记录
+     * 查询单条记录，多条结果也只返回第一条
      */
     public Map<String, Object> findSimpleResult(String sql, List<Object> params) {
+        sql = sql.replace(";", "") + " limit 0,1";
         Map<String, Object> resultSetMap = new HashMap<String, Object>();
         int index = 1;
         Connection conn = null;
@@ -212,9 +201,8 @@ public class IDatabase {
                     pstmt.setObject(index++, params.get(i));
                 }
             }
-            pstmt.setQueryTimeout(15);//设置查询超时时间
+            pstmt.setQueryTimeout(QUERY_TIMEOUT);//设置查询超时时间
             resultSet = pstmt.executeQuery();// 返回查询结果
-            // TODO: 2017/1/22  多条结果也只返回第一条
             if (resultSet.next()) {
                 resultSetMap = getResultSetMap(resultSet);
             }
@@ -244,7 +232,7 @@ public class IDatabase {
                     pstmt.setObject(index++, param);
                 }
             }
-            pstmt.setQueryTimeout(15);//设置查询超时时间
+            pstmt.setQueryTimeout(QUERY_TIMEOUT);//设置查询超时时间
             resultSet = pstmt.executeQuery();// 返回查询结果,阻塞
             while (resultSet.next()) {
                 Map<String, Object> resultSetMap = getResultSetMap(resultSet);
@@ -262,7 +250,7 @@ public class IDatabase {
     /**
      * 通过反射机制查询单条记录
      */
-    public <T> T findSimpleRefResult(String sql, List<Object> params,Class<T> cls) {
+    public <T> T findSimpleRefResult(String sql, List<Object> params, Class<T> cls) {
         T resultObject = null;
         int index = 1;
         Connection conn = null;
@@ -277,7 +265,7 @@ public class IDatabase {
                     pstmt.setObject(index++, params.get(i));
                 }
             }
-            pstmt.setQueryTimeout(15);//设置查询超时时间
+            pstmt.setQueryTimeout(QUERY_TIMEOUT);//设置查询超时时间
             resultSet = pstmt.executeQuery();
             if (resultSet.next()) {
                 //第一条
@@ -347,6 +335,7 @@ public class IDatabase {
 
     /**
      * 类转换为map
+     *
      * @param resultSet
      * @return
      * @throws SQLException
@@ -370,10 +359,16 @@ public class IDatabase {
 
     /**
      * 分页查询sql
+     *
+     * @param sql
+     * @param limit 每页条数
+     * @return
      */
-    public List<String> pagingQuery(String sql, int limit) {
-        List<Map<String, Object>> list = findModeResult(sql, null);
-        int max = list.size();
+    public List<String> pagingQuery(String table, String sql, int limit) {
+        String max_sql = "SELECT COUNT(*) max FROM " + table;
+        int max = Integer.valueOf(findSimpleResult(max_sql, null).get("max").toString());
+        System.out.println("总数：" + max);
+//        int max = list.size();
         int start = 0;
         int pageNum = 0;
         if (max % limit > 0) {
@@ -391,35 +386,6 @@ public class IDatabase {
         return paginglist;
     }
 
-    protected void closeConnect(ResultSet resultSet, PreparedStatement pstmt,
-                              Connection conn) {
-        try {
-            if (resultSet != null) {
-                resultSet.close();
-            }
-            if (pstmt != null) {
-                pstmt.close();
-            }
-//            if (conn != null) {
-//                conn.close();
-//            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-    }
-
-    protected void closeConnect(PreparedStatement pstmt, Connection conn) {
-        try {
-            if (pstmt != null) {
-                pstmt.close();
-            }
-//            if (conn != null) {
-//                conn.close();
-//            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-    }
 
 //    private void closeConnect() {
 //        try {
@@ -436,5 +402,22 @@ public class IDatabase {
             System.out.println(obj.toString());
         }
     }
+
+    /**
+     * 回收链接 or 关闭连接
+     *
+     * @param resultSet
+     * @param pstmt
+     * @param conn
+     */
+    protected abstract void closeConnect(ResultSet resultSet, PreparedStatement pstmt, Connection conn);
+
+    /**
+     * 获取数据库连接
+     *
+     * @return
+     * @throws Exception
+     */
+    protected abstract Connection getConnection() throws Exception;
 
 }

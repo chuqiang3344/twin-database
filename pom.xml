@@ -11,6 +11,7 @@
     <modules>
         <module>database-mongodb</module>
         <module>database-mysql</module>
+        <module>database-hbase</module>
     </modules>
 
     <build>

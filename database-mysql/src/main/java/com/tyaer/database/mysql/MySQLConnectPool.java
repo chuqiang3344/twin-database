@@ -1,6 +1,7 @@
-package com.tyaer.db.mysql;
+package com.tyaer.database.mysql;
 
 import com.mysql.jdbc.jdbc2.optional.MysqlDataSource;
+import org.apache.log4j.Logger;
 
 import java.io.BufferedInputStream;
 import java.io.IOException;
@@ -10,14 +11,20 @@ import java.util.Calendar;
 import java.util.Collection;
 import java.util.Map.Entry;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Created by Twin on 2017/1/17.
  */
 public class MySQLConnectPool {
-    private static int initPoolSize = 5;
-    private static int maxPoolSize = 20;
+    private static final Logger logger = Logger.getLogger(MySQLConnectPool.class);
+    private static final long MARK_USING = 0L;
+    private static int initPoolSize = 1;
+    private static int maxPoolSize = 5;
     private static int waitTime = 100;
 
     static {
@@ -38,7 +45,8 @@ public class MySQLConnectPool {
     //    private static volatile MySQLConnectPool mySQLConnectPool;
     private long start_time = 0l;
     private MysqlDataSource mysqlDataSource;
-    private ConcurrentHashMap<Connection, Boolean> connectionBooleanMap;
+    private ConcurrentHashMap<Connection, Long> connectionBooleanMap;
+    private ScheduledExecutorService scheduledExecutorService;
 
     public MySQLConnectPool(String url, String username, String password) {
         start_time = Calendar.getInstance().getTimeInMillis();
@@ -63,29 +71,22 @@ public class MySQLConnectPool {
             for (int i = 0; i < initPoolSize; i++) {
                 Connection newConnection = getNewConnection();
                 if (newConnection != null) {
-                    connectionBooleanMap.put(newConnection, true);
+                    connectionBooleanMap.put(newConnection, getCurrentTime());
+                } else {
+                    logger.warn("创建新连接失败！");
                 }
             }
             if (connectionBooleanMap.size() == 0) {
-                System.out.println("MySQL连接池启动失败，程序中止！");
+                logger.warn("MySQL连接池启动失败，程序中止！");
                 System.exit(0);
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
-
+        //启动回收线程
+        scheduledExecutorService = Executors.newSingleThreadScheduledExecutor();
+        scheduledExecutorService.scheduleAtFixedRate(new Warder(), 1, 5, TimeUnit.MINUTES);
     }
-
-//    public static MySQLConnectPool getInstance() {
-//        if (mySQLConnectPool == null) {
-//            synchronized (MySQLConnectPool.class) {
-//                if (mySQLConnectPool == null) {
-//                    mySQLConnectPool = new MySQLConnectPool();
-//                }
-//            }
-//        }
-//        return mySQLConnectPool;
-//    }
 
     public Connection getNewConnection() {
         try {
@@ -99,20 +100,20 @@ public class MySQLConnectPool {
     public synchronized Connection getConnection() {
         Connection conn = null;
         try {
-            for (Entry<Connection, Boolean> entry : connectionBooleanMap.entrySet()) {
-                if (entry.getValue()) {
+            for (Entry<Connection, Long> entry : connectionBooleanMap.entrySet()) {
+                if (isAvailable(entry.getValue())) {
                     conn = entry.getKey();
-                    connectionBooleanMap.put(conn, false);
+                    connectionBooleanMap.put(conn, MARK_USING);
                     break;
                 }
             }
             if (conn == null) {
                 if (connectionBooleanMap.size() < maxPoolSize) {
                     conn = getNewConnection();
-                    connectionBooleanMap.put(conn, false);
+                    connectionBooleanMap.put(conn, MARK_USING);
                 } else {
                     wait(waitTime);
-                    conn = getConnection();//递归获取
+                    conn = getConnection();// TODO: 2017/3/15  递归获取
                 }
             }
         } catch (Exception e) {
@@ -133,7 +134,7 @@ public class MySQLConnectPool {
                     if (!conn.getAutoCommit()) {
                         conn.setAutoCommit(true);
                     }
-                    connectionBooleanMap.put(conn, true);
+                    connectionBooleanMap.put(conn, getCurrentTime());
                 }
             } else {
                 conn.close();
@@ -150,25 +151,69 @@ public class MySQLConnectPool {
             }
             connectionBooleanMap.remove(connection);
         }
-        System.out.println("关闭连接池：" + connectionBooleanMap.size());
+        connectionBooleanMap.clear();
+        scheduledExecutorService.shutdown();
+        logger.info("释放连接池：" + connectionBooleanMap.size());
     }
 
     /**
      * 显示连接池当前状态
      */
     public void showStatus() {
-        System.out.println("--------------MySQL连接池状态信息--------------");
-        System.out.println("运行时间：" + (Calendar.getInstance().getTimeInMillis() - start_time));
-        System.out.println("总连接数：" + connectionBooleanMap.size());
-        Collection<Boolean> values = connectionBooleanMap.values();
+        logger.info("--------------MySQL连接池状态信息--------------");
+        logger.info("运行时间：" + (getCurrentTime() - start_time));
+        logger.info("总连接数：" + connectionBooleanMap.size());
+        Collection<Long> values = connectionBooleanMap.values();
         int i = 0;
-        for (Boolean value : values) {
-            if (value) {
+        for (Long value : values) {
+            if (isAvailable(value)) {
                 i++;
             }
         }
-        System.out.println("可用连接数：" + i);
-        System.out.println("-----------------------------------------------");
+        logger.info("可用连接数：" + i);
+        logger.info("-----------------------------------------------");
     }
 
+    private boolean isAvailable(Long value) {
+        return value == MARK_USING ? false : true;
+    }
+
+    /**
+     * 标记正在使用状态
+     *
+     * @return
+     */
+    private long getCurrentTime() {
+        return Calendar.getInstance().getTimeInMillis();
+    }
+
+    /**
+     * 自动关闭超时连接
+     */
+    class Warder extends Thread {
+        private final Long OVERTIME_TIME = 10 * 60 * 1000L;
+//        private final Long OVERTIME_TIME = 5 * 1000L;
+
+        @Override
+        public void run() {
+            showStatus();
+            Set<Entry<Connection, Long>> entries = connectionBooleanMap.entrySet();
+            long time = getCurrentTime();
+            for (Entry<Connection, Long> entry : entries) {
+                Long value = entry.getValue();
+                if (value != MARK_USING && time - value > OVERTIME_TIME) {
+                    Connection connection = entry.getKey();
+                    try {
+                        if (connection != null && !connection.isClosed()) {
+                            logger.info("释放空闲超时连接..." + connectionBooleanMap.size());
+                            connection.close();
+                        }
+                        connectionBooleanMap.remove(connection);
+                    } catch (SQLException e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }
+    }
 }
