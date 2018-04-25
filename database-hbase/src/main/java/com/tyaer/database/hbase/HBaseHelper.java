@@ -392,8 +392,6 @@ public class HBaseHelper {
                 if (i % 10000 == 0) {
                     table.flushCommits();
                     logger.info("persist 10000 records success");
-
-
                 }
             }
             table.flushCommits();
